@@ -51,8 +51,8 @@ architecture Behavioral of dataConsume is
 
 type state_type is (IDLE, WAIT_DATA,RECIEVE,LOAD_RIGHT,LOAD_LEFT,DATA_READY);
 signal currentstate,nextstate : state_type;
-signal regCount : integer;
-signal ctrlIn_delayed, ctrlIn_detected, ctrlOut_reg, peakCompare,enable_regCount: std_logic;
+signal regCount,byteCount,numWords_bcd1,numWords_bcd2,numWords_bcd3,mag : integer;
+signal reset_regCount,ctrlIn_delayed, ctrlIn_detected, ctrlOut_reg, peakCompare,enable_regCount,numWordCOunt: std_logic;
 signal peakReg: CHAR_ARRAY_TYPE(6 downto 0);
 signal shiftReg: CHAR_ARRAY_TYPE(3 to 0);
 begin
@@ -74,7 +74,7 @@ begin
         when RECIEVE => 
             if peakCompare <= '1' then
                 nextState <= LOAD_RIGHT;
-            else if regCount <=3 then
+            elsif regCount <=3 then
                 nextState <= LOAD_LEFT;
             else 
                 nextState <= WAIT_DATA;
@@ -104,24 +104,36 @@ delay_CtrlIn: process(clk)
     end if;
   end process;  
 ctrlIn_detected <= ctrlIn xor ctrlIn_delayed;
-
+ 
+stateRegister:	process (clk)
+  begin
+		if rising_edge (clk) then
+			if (reset = '1') then
+				currentState <= IDLE;
+			else
+				currentState <= nextState;
+			end if;	
+		end if;
+	end process;
 counter: process(clk)
 begin
-	if rising_edge(sysclk) then
+	if rising_edge(clk) then
 		if reset ='1' then
 			regCount <= 0;
-		else	
-			if (enable_regCount <= '1') then
-			     if currentState<=RECIEVE then
-			         regCount <= regCount + '1;
-			     else 
-			         regCount <= regCount;
-			     end if;
-			  elsif (reset_regCount <= '1') then
-			     regCount <= '0'
-		      end if;
+			byteCount <= 0;
+		else  
+		     if (reset_regCount <= '1') then
+			     regCount <= 0;
+		     elsif currentState<=RECIEVE then	
+		          byteCount<=byteCount+1;
+		     elsif (enable_regCount <= '1') then	
+		            regCount <= regCount + 1;
+			 else 
+			        regCount <= regCount;
+			 end if;
+			
+		  end if;
 		 end if;
-    end if;
   end process;
 comparator: process(clk) 
 begin   
@@ -134,9 +146,18 @@ begin
     end if;
 end process;     
 
-seqdone: process(clk)
+numword: process(clk)
 begin 
-
+if reset <='1' then
+    numWordCount <= '0';
+else
+    if bytecount >= mag then 
+        numWordCount <= '1';
+    else 
+    numWordCount <= '0';
+    end if;
+end if;
+end process;
 numWords_bcd1<=TO_INTEGER(unsigned(numWords_bcd(2)));
 numWords_bcd2<=TO_INTEGER(unsigned(numWords_bcd(1)));
 numWords_bcd3<=TO_INTEGER(unsigned(numWords_bcd(0)));
