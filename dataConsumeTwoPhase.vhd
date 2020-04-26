@@ -7,7 +7,7 @@
 -- Module Name: dataConsume - Behavioral
 -- Project Name: 
 -- Target Devices: 
--- Tool Versions: 
+-- Tool Versions: dataConsume.vhd
 -- Description: 
 -- 
 -- Dependencies: 
@@ -47,17 +47,16 @@ entity dataConsume is
 end dataConsume;
 
 architecture Behavioral of dataConsume is
-type state_type is (IDLE, FETCH,WAIT_DATA,SEND_DATA,DATA_READY);
+type state_type is (IDLE,FETCH,WAIT_DATA,DATA_READY,SEQ_DONE);
 signal currentstate,nextstate : state_type;
 signal byteReg: std_logic_vector(7 downto 0);
-signal ctrlIn_delayed, ctrlIn_detected, ctrlOut_reg: std_logic;
-signal numWords_bcd1,numWords_bcd2,numWords_bcd3,mag: integer;
-signal bytecount: integer ; -- counts number of bits read : 
+signal ctrlIn_delayed, ctrlIn_detected, ctrlOut_reg,numWordCount: std_logic;
+signal numWords: BCD_ARRAY_TYPE(2 downto 0);
+signal numWords_int,bytecount: integer range 0 to 999;
 begin
-receiver_nextState: process(currentState, ctrlIn_detected, start) 
+receiver_nextState: process(currentState,start,ctrlIn_Detected,numWordCount) 
 begin
 	 -- assign defaults at the beginning to avoid assigning in every branch
-    ctrlOut <= '0'; 
     case currentState is
         when IDLE => 
             if start = '1' then
@@ -66,65 +65,88 @@ begin
                 nextState <= IDLE;
             end if; 
         when FETCH =>
-        ctrlOut_reg <= not ctrlOut_reg;
         nextState <= WAIT_DATA; 
         when WAIT_DATA => 
             if ctrlIn_Detected <= '1' then
-                nextState <= SEND_DATA;
+                nextState <= DATA_READY;
             else 
                 nextState <= WAIT_DATA;
             end if;
-        when SEND_DATA =>
-        nextState <= DATA_READY;
         when DATA_READY =>
+        if numWordcount = '1' then 
+            nextState <= SEQ_DONE;
+            elsif start ='1' then
+                nextState <= FETCH; 
+            else 
+                nextState <= DATA_READY;
+            end if;
+        when SEQ_DONE =>
         nextState <= IDLE;
-        end case;
-        
+        when others =>
+        nextState <= IDLE;
+        end case;       
 end process;
 
-dataReg:	process (clk)
-  begin
-   if rising_edge(clk) then
-		if reset ='1' then
-			byteReg <= (others => '0');
-		else
-			if currentState = SEND_DATA then
-				byteReg <= data; 
-			end if;
-		end if;  
-	end if;	
-  end process;
- 
-dataLatch:	process (clk)
-  begin
-    if rising_edge(clk) then
-		if reset ='1' then
-			byteReg <= (others => '1');
-			dataReady <= '0';
-		else
-			if currentState = DATA_READY then -- update output lines, signal data is valid
-				byte <= byteReg; 
-				dataReady <= '1';
-			end if;	
-      end if;
-    end if;  
-  end process;
-  
-seqdone : process (clk)
+twophase: process(clk)
+Begin
+    if rising_edge(clk) then 
+        if reset='1' then
+            ctrlOut_reg<='0';
+        else
+            if currentState <= IDLE then
+                ctrlOut_reg <= ctrlOut_reg;
+            elsif currentState <= FETCH then 
+                ctrlOut_reg<= not ctrlOut_reg;
+            
+            end if;
+        end if;
+end if;
+end process;
+dataLatch:	process (currentState,byteReg)
+begin 
+dataready<= '0';
+if currentState = DATA_READY then -- update output lines, signal data is valid
+    byte <= byteReg; 
+	dataReady <= '1';
+end if;
+
+end process;
+byteReg <= data;
+numword: process(numwords)
+Begin
+numWords_int<=100*TO_INTEGER(unsigned(numwords(2)))+10*TO_INTEGER(unsigned(numwords(1)))+TO_INTEGER(unsigned(numwords(0)));
+end process;
+
+maxcount: process(clk)
+begin 
+if rising_edge(clk) then
+    if reset <='1' then
+        numWordCount <= '0';
+    else
+        if (bytecount = numWords_int) then 
+            numWordCount <= '1';
+            byteCount <= 0;
+    end if;
+end if;
+end if;
+end process;
+
+byte_counting_process : process (clk)
   begin
 	if rising_edge(clk) then
 		if reset ='1' then
 			byteCount <= 0;
-		else	 
-			if currentState = DATA_READY then
-				
-		if byteCount 
+		else	
+			if currentState = WAIT_DATA then
+				if ctrlIn_Detected <= '1' then
+				    byteCount <= byteCount + 1;
+				else 
+				    byteCount <= byteCount;
+				end if;
 			end if;
 		end if;
 	end if;	
   end process;
-
-
 
 stateRegister:	process (clk)
   begin
@@ -144,8 +166,5 @@ stateRegister:	process (clk)
   end process;  
 ctrlIn_detected <= ctrlIn xor ctrlIn_delayed;
 ctrlOut <= ctrlOut_reg;
-numWords_bcd1<=TO_INTEGER(unsigned(numWords_bcd(2)));
-numWords_bcd2<=TO_INTEGER(unsigned(numWords_bcd(1)));
-numWords_bcd3<=TO_INTEGER(unsigned(numWords_bcd(0)));
-mag<= numWords_bcd3 + (numWords_bcd2 *10) + (numWords_bcd1*100);
+numWords<=numwords_bcd;
 end Behavioral;
