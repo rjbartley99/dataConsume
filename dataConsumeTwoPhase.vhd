@@ -93,10 +93,10 @@ Begin
         if reset='1' then
             ctrlOut_reg<='0';
         else
-            if currentState <= IDLE then
-                ctrlOut_reg <= ctrlOut_reg;
-            elsif currentState <= FETCH then 
-                ctrlOut_reg<= not ctrlOut_reg;
+            if currentState = FETCH then
+                ctrlOut_reg <= not ctrlOut_reg;
+            else
+                ctrlOut_reg<= ctrlOut_reg;
             
             end if;
         end if;
@@ -104,31 +104,43 @@ end if;
 end process;
 dataLatch:	process (currentState,byteReg)
 begin 
-dataready<= '0';
-if currentState = DATA_READY then -- update output lines, signal data is valid
-    byte <= byteReg; 
+case currentState IS
+ when DATA_READY => -- update output lines, signal data is valid 
 	dataReady <= '1';
-end if;
+ when SEQ_DONE =>
+    seqDone <= '1';
+ when others =>
+    dataReady <='0';
+    seqDone <= '1';
+  end case;
 
 end process;
-byteReg <= data;
+
+reg: process(clk)
+begin
+if rising_edge(clk) then  
+   if reset = '1' then
+    byteReg <= (others => '0');
+    else 
+       byteReg <= data;
+    end if;
+end if;
+end process;
+
+       
 numword: process(numwords)
 Begin
 numWords_int<=100*TO_INTEGER(unsigned(numwords(2)))+10*TO_INTEGER(unsigned(numwords(1)))+TO_INTEGER(unsigned(numwords(0)));
 end process;
 
-maxcount: process(clk)
+maxcount: process(byteCount,numWords_int)
 begin 
-if rising_edge(clk) then
-    if reset <='1' then
-        numWordCount <= '0';
-    else
-        if (bytecount = numWords_int) then 
+ if (bytecount = numWords_int) then 
             numWordCount <= '1';
-            byteCount <= 0;
-    end if;
+     else 
+        numWordCount <= '0';
 end if;
-end if;
+
 end process;
 
 byte_counting_process : process (clk)
@@ -136,9 +148,11 @@ byte_counting_process : process (clk)
 	if rising_edge(clk) then
 		if reset ='1' then
 			byteCount <= 0;
-		else	
-			if currentState = WAIT_DATA then
-				if ctrlIn_Detected <= '1' then
+		else 	
+		    if (byteCount = numWords_int) then
+		      byteCount <= 0;
+		     elsif currentState = WAIT_DATA then
+				   if ctrlIn_Detected <= '1' then
 				    byteCount <= byteCount + 1;
 				else 
 				    byteCount <= byteCount;
